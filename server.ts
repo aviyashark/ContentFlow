@@ -30,12 +30,13 @@ async function startServer() {
   
   // Listen for new notifications
   db.collection('notifications').onSnapshot(snapshot => {
+    console.log(`Notification snapshot received. Count: ${snapshot.size}`);
     snapshot.docChanges().forEach(async change => {
       if (change.type === 'added') {
         const data = change.doc.data();
         const { targetUserKey, title, body } = data;
         
-        console.log(`Processing notification for ${targetUserKey}: ${title}`);
+        console.log(`Processing notification for ${targetUserKey}: "${title}"`);
         
         try {
           // Get user's token
@@ -45,26 +46,33 @@ async function startServer() {
             const fcmToken = userData?.fcmToken;
             
             if (fcmToken) {
+              console.log(`Found token for ${targetUserKey}: ${fcmToken.substring(0, 10)}...`);
               const appUrl = process.env.APP_URL || 'https://ais-dev-ox6ym4bkpli4s27pyhkqej-186553228772.asia-southeast1.run.app';
-              await messaging.send({
+              
+              const message = {
                 token: fcmToken,
                 notification: { title, body },
                 webpush: {
                   notification: {
+                    title,
+                    body,
                     icon: `${appUrl}/icons/icon-192.png`,
                     badge: `${appUrl}/icons/icon-192.png`,
+                    click_action: appUrl,
                   },
                   fcmOptions: {
                     link: appUrl
                   }
                 }
-              });
-              console.log(`Notification sent successfully to ${targetUserKey}`);
+              };
+
+              const response = await messaging.send(message);
+              console.log(`Successfully sent message to ${targetUserKey}. Response:`, response);
             } else {
-              console.log(`No FCM token found for user ${targetUserKey}`);
+              console.warn(`No FCM token found in document for user ${targetUserKey}`);
             }
           } else {
-            console.log(`User document not found for ${targetUserKey}`);
+            console.warn(`User document not found for ${targetUserKey} in 'users' collection`);
           }
         } catch (err) {
           console.error(`Error sending notification to ${targetUserKey}:`, err);
@@ -72,6 +80,7 @@ async function startServer() {
           // Always delete the notification document after processing to keep the collection clean
           try {
             await change.doc.ref.delete();
+            console.log(`Deleted notification document ${change.doc.id}`);
           } catch (deleteErr) {
             console.error('Error deleting processed notification:', deleteErr);
           }

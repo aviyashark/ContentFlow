@@ -73,6 +73,37 @@ export default function App() {
   const [toasts, setToasts] = useState<{ id: string; title: string; body: string; type: 'info' | 'success' | 'error' }[]>([]);
   const [fcmToken, setFcmToken] = useState<string | null>(null);
 
+  const refreshFcmToken = async () => {
+    if (!user || !messaging) return;
+    try {
+      // 1. Register Service Worker explicitly (required for FCM)
+      if ('serviceWorker' in navigator) {
+        await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+      }
+
+      // 2. Request Permission
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        // 3. Get Token
+        const token = await getToken(messaging, { 
+          vapidKey: 'BGUaacjX40_iqIwADjFRoRpCrsZbM4Pbs41VxqluCAGb_1pv3SZXH53VdF2cFQZrKPyhY8LLyoZ1Uy25HgAluL0'
+        });
+        
+        if (token) {
+          console.log('FCM Token refreshed:', token);
+          setFcmToken(token);
+          await setDoc(doc(db, 'users', user.key), {
+            fcmToken: token,
+            updatedAt: Date.now()
+          }, { merge: true });
+        }
+      }
+    } catch (err) {
+      console.error('Refresh FCM Token error:', err);
+      throw err;
+    }
+  };
+
   const triggerNotification = async (targetUserKey: string, title: string, body: string) => {
     try {
       await addDoc(collection(db, 'notifications'), {
@@ -162,34 +193,6 @@ export default function App() {
   }, [firebaseUser, user]);
 
   useEffect(() => {
-    // Inject PWA Manifest
-    const manifest = {
-      name: "ContentFlow",
-      short_name: "ContentFlow",
-      description: "Content Production Pipeline for Saad & Sarim",
-      start_url: ".",
-      display: "standalone",
-      background_color: "#0a0a0a",
-      theme_color: "#0a0a0a",
-      icons: [
-        {
-          src: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgdmlld0JveD0iMCAwIDUxMiA1MTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIHJ4PSIxMjgiIGZpbGw9ImJsYWNrIi8+PHJlY3QgeD0iMTI4IiB5PSIxMjgiIHdpZHRoPSIxMTIiIGhlaWdodD0iMTEyIiByeD0iOCIgZmlsbD0id2hpdGUiLz48cmVjdCB4PSIyNzIiIHk9IjEyOCIgd2lkdGg9IjExMiIgaGVpZ2h0PSIxMTIiIHJ4PSI4IiBmaWxsPSJ3aGl0ZSIvPjxyZWN0IHg9IjEyOCIgeT0iMjcyIiB3aWR0aD0iMTEyIiBoZWlnaHQ9IjExMiIgcng9IjgiIGZpbGw9IndoaXRlIi8+PHJlY3QgeD0iMjcyIiB5PSIyNzIiIHdpZHRoPSIxMTIiIGhlaWdodD0iMTEyIiByeD0iOCIgZmlsbD0id2hpdGUiLz48L3N2Zz4=",
-          sizes: "512x512",
-          type: "image/svg+xml",
-          purpose: "any maskable"
-        }
-      ]
-    };
-    const stringManifest = JSON.stringify(manifest);
-    const blob = new Blob([stringManifest], {type: 'application/json'});
-    const manifestURL = URL.createObjectURL(blob);
-    const link = document.createElement('link');
-    link.rel = 'manifest';
-    link.href = manifestURL;
-    document.head.appendChild(link);
-  }, []);
-
-  useEffect(() => {
     // Auto-delete uploaded items older than 24 hours
     const now = Date.now();
     const oneDay = 24 * 60 * 60 * 1000;
@@ -221,34 +224,51 @@ export default function App() {
 
   useEffect(() => {
     if (user && messaging) {
-      const requestPermission = async () => {
+      const setupNotifications = async () => {
         try {
-          // On iOS, notifications only work in standalone mode
+          // 1. Register Service Worker explicitly (required for FCM)
+          if ('serviceWorker' in navigator) {
+            const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+            console.log('Service Worker registered with scope:', registration.scope);
+          }
+
+          // 2. Check for iOS standalone mode
           const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
           if (isIOS && !isStandalone) {
             console.log('iOS: Notifications require PWA mode (Add to Home Screen)');
             return;
           }
 
+          // 3. Request Permission
           const permission = await Notification.requestPermission();
+          console.log('Notification permission:', permission);
+          
           if (permission === 'granted') {
+            // 4. Get Token
+            // NOTE: This VAPID key must match the one in your Firebase Console -> Project Settings -> Cloud Messaging -> Web Push certificates
             const token = await getToken(messaging, { 
               vapidKey: 'BGUaacjX40_iqIwADjFRoRpCrsZbM4Pbs41VxqluCAGb_1pv3SZXH53VdF2cFQZrKPyhY8LLyoZ1Uy25HgAluL0'
             });
+            
             if (token) {
+              console.log('FCM Token generated:', token);
               setFcmToken(token);
               // Store token in user's document
-              await updateDoc(doc(db, 'users', user.key), {
+              // Use setDoc with merge to ensure the document exists
+              await setDoc(doc(db, 'users', user.key), {
                 fcmToken: token,
                 updatedAt: Date.now()
-              });
+              }, { merge: true });
+            } else {
+              console.warn('No FCM token received');
             }
           }
         } catch (err) {
-          console.error('Notification permission error:', err);
+          console.error('Notification setup error:', err);
         }
       };
-      requestPermission();
+      
+      setupNotifications();
 
       const unsubMessage = onMessage(messaging, (payload) => {
         console.log('Foreground message received:', payload);
@@ -258,7 +278,7 @@ export default function App() {
       });
       return () => unsubMessage();
     }
-  }, [user]);
+  }, [user, isStandalone]);
 
   // --- Handlers ---
 
@@ -457,7 +477,7 @@ export default function App() {
             {activeTab === 'ideation' && <Ideation user={user} data={data} setData={setData} settings={settings} addToast={addToast} triggerNotification={triggerNotification} />}
             {activeTab === 'approved' && <ApprovedIdeas user={user} data={data} setData={setData} settings={settings} addToast={addToast} triggerNotification={triggerNotification} />}
             {activeTab === 'pipeline' && <Pipeline user={user} data={data} setData={setData} settings={settings} addToast={addToast} triggerNotification={triggerNotification} />}
-            {activeTab === 'settings' && <SettingsPage user={user} data={data} setData={setData} settings={settings} setSettings={setSettings} addToast={addToast} triggerNotification={triggerNotification} />}
+            {activeTab === 'settings' && <SettingsPage user={user} data={data} setData={setData} settings={settings} setSettings={setSettings} addToast={addToast} triggerNotification={triggerNotification} fcmToken={fcmToken} isStandalone={isStandalone} refreshFcmToken={refreshFcmToken} />}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -1415,9 +1435,67 @@ function PipelineCard({ item, onMove, onDelete, canMoveForward }: any) {
     </div>
   );
 }
-function SettingsPage({ user, data, setData, settings, setSettings, addToast, triggerNotification }: any) {
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
-  
+function SettingsPage({ user, data, setData, settings, setSettings, addToast, triggerNotification, fcmToken, isStandalone, refreshFcmToken }: any) {
+  const [isTesting, setIsTesting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+
+  useEffect(() => {
+    // Capture some logs for the debug section
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+
+    const addLog = (type: string, args: any[]) => {
+      const msg = `[${type}] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}`;
+      setDebugLogs(prev => [msg, ...prev].slice(0, 10));
+    };
+
+    console.log = (...args) => { originalLog(...args); addLog('LOG', args); };
+    console.warn = (...args) => { originalWarn(...args); addLog('WARN', args); };
+    console.error = (...args) => { originalError(...args); addLog('ERR', args); };
+
+    return () => {
+      console.log = originalLog;
+      console.warn = originalWarn;
+      console.error = originalError;
+    };
+  }, []);
+
+  const testNotification = async () => {
+    if (!user) return;
+    setIsTesting(true);
+    try {
+      await triggerNotification(user.key, 'Test Notification', 'If you see this, notifications are working!');
+      addToast('Test Triggered', 'A test notification has been sent to your device.', 'success');
+    } catch (err) {
+      console.error('Test notification error:', err);
+      addToast('Test Failed', 'Failed to trigger test notification.', 'error');
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const copyToken = () => {
+    if (fcmToken) {
+      navigator.clipboard.writeText(fcmToken);
+      addToast('Token Copied', 'FCM Token copied to clipboard.', 'success');
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshFcmToken();
+      addToast('Token Refreshed', 'FCM Token has been updated.', 'success');
+    } catch (err) {
+      console.error('Refresh token error:', err);
+      addToast('Refresh Failed', 'Failed to refresh FCM token.', 'error');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const handleSignOut = async () => {
     try {
       await signOut(auth);
@@ -1459,6 +1537,93 @@ function SettingsPage({ user, data, setData, settings, setSettings, addToast, tr
       <header>
         <h1 className="text-3xl font-bold">Settings</h1>
       </header>
+
+      <section className="space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500">
+            <AlertCircle size={20} />
+          </div>
+          <h2 className="text-xl font-semibold">Notification Debug</h2>
+        </div>
+        
+        <div className="bg-[#111] border border-[#2a2a2a] rounded-2xl p-6 space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-zinc-400">Permission Status</p>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${Notification.permission === 'granted' ? 'bg-green-500' : 'bg-red-500'}`} />
+                <p className="text-sm capitalize font-mono">{Notification.permission}</p>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-zinc-400">Environment</p>
+              <p className="text-sm font-mono">{isStandalone ? 'PWA (Standalone)' : 'Browser (Tab)'}</p>
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-zinc-400">Sender ID</p>
+              <p className="text-sm font-mono">1087797188686</p>
+            </div>
+
+            <div className="space-y-1 sm:col-span-2">
+              <p className="text-sm font-medium text-zinc-400">VAPID Key (Public)</p>
+              <code className="text-[10px] bg-black p-2 rounded border border-[#222] block truncate font-mono">
+                BGUaacjX40_iqIwADjFRoRpCrsZbM4Pbs41VxqluCAGb_1pv3SZXH53VdF2cFQZrKPyhY8LLyoZ1Uy25HgAluL0
+              </code>
+              <p className="text-[10px] text-zinc-500 mt-1 italic">Must match your Firebase Console -> Cloud Messaging -> Web Push certificates</p>
+            </div>
+
+            <div className="space-y-1 sm:col-span-2">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm font-medium text-zinc-400">FCM Token</p>
+                <button 
+                  onClick={handleRefresh} 
+                  disabled={isRefreshing}
+                  className="text-[10px] text-blue-500 hover:text-blue-400 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <RefreshCw size={10} className={isRefreshing ? 'animate-spin' : ''} />
+                  {isRefreshing ? 'Refreshing...' : 'Refresh Token'}
+                </button>
+              </div>
+              {fcmToken ? (
+                <div className="flex items-center gap-2">
+                  <code className="text-[10px] bg-black p-2 rounded border border-[#222] truncate flex-1 font-mono">
+                    {fcmToken}
+                  </code>
+                  <button onClick={copyToken} className="p-2 hover:bg-[#222] rounded transition-colors text-zinc-400 hover:text-white">
+                    <Database size={16} />
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-red-500 font-mono">No token generated. Check console for errors.</p>
+              )}
+            </div>
+          </div>
+
+          <button
+            onClick={testNotification}
+            disabled={isTesting || !fcmToken}
+            className="w-full py-3 bg-white text-black rounded-xl font-bold hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isTesting ? 'Sending...' : 'Send Test Notification'}
+            <ArrowRight size={18} />
+          </button>
+
+          {debugLogs.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Recent Debug Logs</p>
+              <div className="bg-black/50 rounded-lg p-3 font-mono text-[10px] space-y-1 max-h-32 overflow-y-auto border border-[#222]">
+                {debugLogs.map((log, i) => (
+                  <div key={i} className={log.includes('ERR') ? 'text-red-400' : log.includes('WARN') ? 'text-yellow-400' : 'text-zinc-400'}>
+                    {log}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Notifications Section */}
       <section className="space-y-4">
