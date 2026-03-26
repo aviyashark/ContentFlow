@@ -20,7 +20,8 @@ import {
   Database,
   AlertTriangle,
   LogIn,
-  Clock
+  Clock,
+  RefreshCw
 } from 'lucide-react';
 import { USERS, DEFAULT_CHANNELS, WEEKLY_SCHEDULE } from './constants';
 import { User, UserKey, AppData, Settings, Idea, PipelineItem, CompletedItem, PipelineStage } from './types';
@@ -1571,7 +1572,7 @@ function SettingsPage({ user, data, setData, settings, setSettings, addToast, tr
               <code className="text-[10px] bg-black p-2 rounded border border-[#222] block truncate font-mono">
                 BGUaacjX40_iqIwADjFRoRpCrsZbM4Pbs41VxqluCAGb_1pv3SZXH53VdF2cFQZrKPyhY8LLyoZ1Uy25HgAluL0
               </code>
-              <p className="text-[10px] text-zinc-500 mt-1 italic">Must match your Firebase Console -> Cloud Messaging -> Web Push certificates</p>
+              <p className="text-[10px] text-zinc-500 mt-1 italic">Must match your Firebase Console &rarr; Cloud Messaging &rarr; Web Push certificates</p>
             </div>
 
             <div className="space-y-1 sm:col-span-2">
