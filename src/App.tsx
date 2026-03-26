@@ -66,6 +66,7 @@ export default function App() {
   const [pinError, setPinError] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showPwaPrompt, setShowPwaPrompt] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
   const [data, setData] = useState<AppData>({ ideas: [], pipeline: [], completed: [] });
   const [settings, setSettings] = useState<Settings>(getInitialSettings());
   const [isSyncing, setIsSyncing] = useState(false);
@@ -98,9 +99,10 @@ export default function App() {
   useEffect(() => {
     // Check if on mobile and not already in standalone mode
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+    setIsStandalone(!!standalone);
     
-    if (isMobile && !isStandalone) {
+    if (isMobile && !standalone) {
       setShowPwaPrompt(true);
     }
   }, []);
@@ -221,10 +223,16 @@ export default function App() {
     if (user && messaging) {
       const requestPermission = async () => {
         try {
+          // On iOS, notifications only work in standalone mode
+          const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+          if (isIOS && !isStandalone) {
+            console.log('iOS: Notifications require PWA mode (Add to Home Screen)');
+            return;
+          }
+
           const permission = await Notification.requestPermission();
           if (permission === 'granted') {
             const token = await getToken(messaging, { 
-              // Replace with your actual VAPID key from Firebase Console -> Project Settings -> Cloud Messaging -> Web Push certificates
               vapidKey: 'BGUaacjX40_iqIwADjFRoRpCrsZbM4Pbs41VxqluCAGb_1pv3SZXH53VdF2cFQZrKPyhY8LLyoZ1Uy25HgAluL0'
             });
             if (token) {
@@ -484,6 +492,67 @@ export default function App() {
           ))}
         </AnimatePresence>
       </div>
+
+      {/* PWA Prompt */}
+      <AnimatePresence>
+        {showPwaPrompt && (
+          <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowPwaPrompt(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              className="relative bg-[#111] border border-[#2a2a2a] w-full max-w-md rounded-t-2xl sm:rounded-2xl p-8 space-y-6 shadow-2xl"
+            >
+              <div className="flex justify-center">
+                <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center overflow-hidden">
+                  <img 
+                    src="/icons/icon-192.png" 
+                    alt="App Icon" 
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              </div>
+              
+              <div className="text-center space-y-2">
+                <h2 className="text-2xl font-bold">Install ContentFlow</h2>
+                <p className="text-sm text-zinc-400">
+                  To receive actual app notifications on your phone, you must add ContentFlow to your home screen.
+                </p>
+              </div>
+
+              <div className="bg-[#1a1a1a] rounded-xl p-4 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="bg-zinc-800 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0">1</div>
+                  <p className="text-xs text-zinc-300">Tap the <span className="font-bold text-white">Share</span> button in your browser.</p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="bg-zinc-800 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0">2</div>
+                  <p className="text-xs text-zinc-300">Select <span className="font-bold text-white">"Add to Home Screen"</span> from the menu.</p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="bg-zinc-800 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0">3</div>
+                  <p className="text-xs text-zinc-300">Open the app from your home screen and enable notifications.</p>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setShowPwaPrompt(false)}
+                className="w-full bg-white text-black font-bold py-4 rounded-xl hover:bg-zinc-200 transition-colors"
+              >
+                Got it
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1347,6 +1416,8 @@ function PipelineCard({ item, onMove, onDelete, canMoveForward }: any) {
   );
 }
 function SettingsPage({ user, data, setData, settings, setSettings, addToast, triggerNotification }: any) {
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+  
   const handleSignOut = async () => {
     try {
       await signOut(auth);
@@ -1398,8 +1469,8 @@ function SettingsPage({ user, data, setData, settings, setSettings, addToast, tr
         <div className="bg-[#111] border border-[#2a2a2a] rounded-xl p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div className="space-y-1">
-              <h3 className="font-bold">Push Notifications</h3>
-              <p className="text-xs text-zinc-500">Receive alerts when the other user updates the pipeline or adds ideas.</p>
+              <h3 className="font-bold">App Notifications</h3>
+              <p className="text-xs text-zinc-500">Receive system alerts on your phone when the other user updates the pipeline or adds ideas.</p>
             </div>
             <button 
               onClick={toggleNotifications}
@@ -1409,11 +1480,20 @@ function SettingsPage({ user, data, setData, settings, setSettings, addToast, tr
             </button>
           </div>
           
+          {!isStandalone && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) && (
+            <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg flex gap-3">
+              <AlertTriangle className="text-yellow-500 shrink-0" size={16} />
+              <p className="text-[10px] text-yellow-500/80 leading-relaxed">
+                <span className="font-bold">Action Required:</span> To get actual app notifications on mobile, you must "Add to Home Screen" first.
+              </p>
+            </div>
+          )}
+          
           {settings.notificationsEnabled && (
             <div className="pt-4 border-t border-[#2a2a2a] flex items-center justify-between">
               <div className="space-y-1">
                 <h3 className="font-bold text-sm">Test Notification</h3>
-                <p className="text-[10px] text-zinc-500">Send a test alert to yourself to verify it's working.</p>
+                <p className="text-[10px] text-zinc-500">Send a test alert to verify it's working on this device.</p>
               </div>
               <button 
                 onClick={() => triggerNotification(user.key, 'Test Alert', 'This is a test notification from ContentFlow!')}

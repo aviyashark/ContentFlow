@@ -45,16 +45,17 @@ async function startServer() {
             const fcmToken = userData?.fcmToken;
             
             if (fcmToken) {
+              const appUrl = process.env.APP_URL || 'https://ais-dev-ox6ym4bkpli4s27pyhkqej-186553228772.asia-southeast1.run.app';
               await messaging.send({
                 token: fcmToken,
                 notification: { title, body },
                 webpush: {
                   notification: {
-                    icon: 'https://ais-dev-ox6ym4bkpli4s27pyhkqej-186553228772.asia-southeast1.run.app/favicon.ico',
-                    badge: 'https://ais-dev-ox6ym4bkpli4s27pyhkqej-186553228772.asia-southeast1.run.app/favicon.ico',
+                    icon: `${appUrl}/icons/icon-192.png`,
+                    badge: `${appUrl}/icons/icon-192.png`,
                   },
                   fcmOptions: {
-                    link: 'https://ais-dev-ox6ym4bkpli4s27pyhkqej-186553228772.asia-southeast1.run.app'
+                    link: appUrl
                   }
                 }
               });
